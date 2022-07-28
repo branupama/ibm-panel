@@ -67,6 +67,11 @@ void Transport::panelI2CSetup()
 
 void Transport::panelI2CWrite(const types::Binary& buffer) const
 {
+    bool writeFailed = false;
+    int failedErrno = 0;
+    ssize_t returnedSize = 0;
+    int retriesDone = 0;
+    const std::string imValue = utils::getSystemIM();
     std::ostringstream i2cAddress;
     i2cAddress << "0x" << std::hex << std::uppercase
                << static_cast<int>(devAddress);
@@ -77,17 +82,36 @@ void Transport::panelI2CWrite(const types::Binary& buffer) const
             static constexpr auto maxRetry = 5; // Just a random value
             for (auto retryLoop = 0; retryLoop < maxRetry; ++retryLoop)
             {
-                auto returnedSize =
+                returnedSize =
                     write(panelFileDescriptor, buffer.data(), buffer.size());
                 if (returnedSize !=
                     static_cast<int>(buffer.size())) // write failure
+                {
+                    writeFailed = true;
+                    failedErrno = errno;
+                    sleep(2);
+                    if(false == utils::getLcdPanelPresentProperty(imValue))
+                    {
+                        break;
+                    }
+                    else
+                    {
+                        continue;
+                    }
+                }
+                retriesDone = retryLoop;
+                break;
+            }
+            if(writeFailed == true)
+            {
+                if(false != utils::getLcdPanelPresentProperty(imValue))
                 {
                     auto err = errno;
                     std::cerr << "\n I2C Write failure. Errno : " << err
                               << ". Errno description : " << strerror(err)
                               << ". Bytes written = " << returnedSize
                               << ". Actual Bytes = " << buffer.size()
-                              << ". Retry = " << retryLoop << std::endl;
+                              << ". Retry = " << retriesDone << std::endl;
                     std::map<std::string, std::string> additionData{};
                     additionData.emplace("DESCRIPTION", strerror(err));
                     additionData.emplace("CALLOUT_IIC_BUS", devPath);
@@ -97,9 +121,7 @@ void Transport::panelI2CWrite(const types::Binary& buffer) const
                         "xyz.openbmc_project.Common.Device.Error.WriteFailure",
                         "xyz.openbmc_project.Logging.Entry.Level.Warning",
                         additionData);
-                    continue;
                 }
-                break;
             }
         }
         else

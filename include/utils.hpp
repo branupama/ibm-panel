@@ -203,5 +203,22 @@ std::vector<std::string> getSubTreePaths(const std::string& objectPath,
                                          const std::vector<std::string>& intf,
                                          const int32_t depth);
 
+/**
+ * @brief Get the systems IM value.
+ *
+ * @return the IM value of the system.
+ */
+std::string getSystemIM();
+
+/**
+ * @brief Get the presence of the LCD panel.
+ * This api returns the value of the present property for the LCD panel on the system
+ * interface.
+ * @param[in] imValue - IM value of the system.
+ *
+ * @return The value of the presence property.
+ */
+bool getLcdPanelPresentProperty(const std::string& imValue);
+
 } // namespace utils
 } // namespace panel

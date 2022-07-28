@@ -10,6 +10,20 @@ namespace panel
 {
 namespace utils
 {
+types::PanelDataMap lcdDataMap = {
+    {constants::rain2s2uIM,
+     {constants::rainLcdDevPath, constants::devAddr,
+      constants::rainLcdDbusObj}},
+    {constants::rain2s4uIM,
+     {constants::rainLcdDevPath, constants::devAddr,
+      constants::rainLcdDbusObj}},
+    {constants::rain1s4uIM,
+     {constants::rainLcdDevPath, constants::devAddr,
+      constants::rainLcdDbusObj}},
+    {constants::everestIM,
+     {constants::everLcdDevPath, constants::devAddr,
+      constants::everLcdDbusObj}}};
+
 // Global variables to restore state of display lines.
 std::string restoreLine1, restoreLine2;
 
@@ -317,6 +331,40 @@ std::vector<std::string> getSubTreePaths(const std::string& objectPath,
     }
 
     return result;
+}
+
+std::string getSystemIM()
+{
+    auto im = readBusProperty<std::variant<types::Binary>>(
+        constants::inventoryManagerIntf, constants::systemDbusObj,
+        constants::imInterface, constants::imKeyword);
+    if (auto imVector = std::get_if<types::Binary>(&im))
+    {
+        return utils::binaryToHexString(*imVector);
+    }
+    else
+    {
+        std::cerr << "\n Failed querying IM property from dbus" << std::endl;
+    }
+    return "";
+}
+
+bool getLcdPanelPresentProperty(const std::string& imValue)
+{
+    auto present = readBusProperty<std::variant<bool>>(
+        constants::inventoryManagerIntf,
+        std::get<2>((lcdDataMap.find(imValue))->second),
+        constants::itemInterface, "Present");
+    if (auto p = std::get_if<bool>(&present))
+    {
+        return *p;
+    }
+    else
+    {
+        std::cerr << "\n Failed querying Present property from dbus."
+                  << std::endl;
+    }
+    return false;
 }
 
 } // namespace utils
