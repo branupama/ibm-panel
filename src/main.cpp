@@ -1,4 +1,5 @@
 #include "const.hpp"
+#include "error_codes.hpp"
 #include "state_manager.hpp"
 #include "transport.hpp"
 #include "utils.hpp"
@@ -54,17 +55,23 @@ void initPanel() noexcept
     try
     {
         // Read IM and determine role mask before creating the state manager.
-        const std::string imValue = panel::utils::getSystemIm();
-        if (imValue.empty())
+        const auto imResult = panel::utils::getSystemIm();
+        if (!imResult)
         {
-            lg2::error(
-                "Failed to read IM value; skipping panel initialisation.");
-            return;
+            throw std::runtime_error(
+                std::format("Error occured while reading system IM value from "
+                            "D-Bus, reason: {}",
+                            panel::utils::getErrCodeMsg(imResult.error())));
+        }
+        else if (imResult.value().empty())
+        {
+            throw std::runtime_error("System IM value found empty");
         }
 
         // TODO: Move role fetching to SystemStatus once the class is
         // implemented.
-        const panel::types::RoleType defaultRole = getDefaultPanelRole(imValue);
+        const panel::types::RoleType defaultRole =
+            getDefaultPanelRole(imResult.value());
 
         // TODO: Pass real devPath, devAddr and fruPath once available.
         auto transport = std::make_shared<panel::Transport>();
