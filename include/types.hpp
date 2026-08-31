@@ -16,5 +16,7 @@ using Binary = std::vector<Byte>;
 using FunctionNumber = uint8_t;
 using FunctionMask = uint16_t;
 using FunctionalityList = std::vector<FunctionNumber>;
+using RoleType = uint16_t;
+using systemStateType = uint16_t;
 } // namespace types
 } // namespace panel
