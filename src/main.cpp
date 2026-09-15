@@ -7,11 +7,14 @@
 #include <algorithm>
 #include <boost/asio/io_context.hpp>
 #include <format>
+#include <limits>
 #include <memory>
 #include <phosphor-logging/lg2.hpp>
 #include <sdbusplus/asio/connection.hpp>
 #include <sdbusplus/asio/object_server.hpp>
 
+namespace panel
+{
 /**
  * @brief Determine the panel role based on the system IM value.
  *
@@ -29,20 +32,95 @@
  *
  * @throw exception
  */
-panel::types::RoleType getDefaultPanelRole(const std::string& im)
+types::RoleType getDefaultPanelRole(const std::string& im)
 {
-    if (std::ranges::contains(panel::constants::redundantBmcSystemImList, im))
+    if (std::ranges::contains(constants::redundantBmcSystemImList, im))
     {
         lg2::info(
             "Redundant BMC system detected (IM={IM}); assigning Unknow role",
             "IM", im);
-        return panel::constants::roleUnknown;
+        return constants::roleUnknown;
     }
 
     lg2::info(
         "Single BMC system detected (IM={IM}); assigning role bits as high",
         "IM", im);
-    return panel::constants::roleMask;
+    return constants::roleMask;
+}
+
+/**
+ * @brief Check and enable the LCD panel transport key.
+ *
+ * This API enables the transport key for redundant-BMC systems. It reads the
+ * BMC position from D-Bus; the position is used to determine panel control
+ * ownership via the `Patch Panel` control bits.
+ *
+ * Enabling the transport key is based on the following criteria:
+ *     # Panel device should be present.
+ *     # Read the panel control bits from the `Patch Panel` to determine
+ *       who owns the panel control.
+ *     # If current BMC owns the control, enable the transport key for the
+ *       LCD device.
+ * In case of any error, log a PEL.
+ *
+ * Note: Setting transport key to true allows the Transport class to access the
+ * i2c bus.
+ *
+ * @param[in] transport - The transport object.
+ */
+void checkAndEnableLcdPanel([[maybe_unused]] const auto& transport) noexcept
+{
+    try
+    {
+
+        /* ToDo enable transport key based on below criteria
+         * 1. Check LCD panel is present, if device is present
+         * 1.1. Read the Panel control bits from Patch Panel to know
+         * who owns the position.
+         * 1.2. If control is owned by current BMC, enable the transport key
+         * for LCD device.
+         *
+         * Note: Until patch panel control-bit access is available to find
+         * the Panel ownership, the BMC at position `0` is granted control.
+         */
+
+        const auto positionRes = utils::readDbusProperty(
+            constants::pimService, constants::systemInvPath,
+            constants::positionInterface, constants::positionPropertyName);
+
+        if (!positionRes)
+        {
+            std::string errMessage = std::format(
+                "Failed to read BMC Position from D-Bus, reason: {}",
+                utils::getErrCodeMsg(positionRes.error()));
+            lg2::error("{ERR}", "ERR", errMessage);
+        }
+        else if (const auto val = std::get_if<size_t>(&positionRes.value()))
+        {
+            if (*val == constants::VALUE_0)
+            {
+                // ToDo: set transport key
+            }
+        }
+        else
+        {
+            lg2::error("{ERR}", "ERR",
+                       std::string("Invalid type received while reading "
+                                   "BMC Position from D-Bus"));
+        }
+    }
+    catch (const std::exception& ex)
+    {
+        std::string errMessage =
+            std::format("Error occurred while reading and enabling "
+                        "Panel ownership, reason: {}",
+                        ex.what());
+        lg2::error("{ERR}", "ERR", errMessage);
+
+        utils::createPEL("com.ibm.Panel.Error.InternalFailure",
+                         "xyz.openbmc_project.Logging.Entry.Level.Warning",
+                         {{"DESCRIPTION", errMessage}});
+    }
 }
 
 /**
@@ -56,13 +134,13 @@ void initPanel() noexcept
     try
     {
         // Read IM and determine role mask before creating the state manager.
-        const auto imResult = panel::utils::getSystemIm();
+        const auto imResult = utils::getSystemIm();
         if (!imResult)
         {
             throw std::runtime_error(
                 std::format("Error occured while reading system IM value from "
                             "D-Bus, reason: {}",
-                            panel::utils::getErrCodeMsg(imResult.error())));
+                            utils::getErrCodeMsg(imResult.error())));
         }
         else if (imResult.value().empty())
         {
@@ -71,28 +149,41 @@ void initPanel() noexcept
 
         // TODO: Move role fetching to SystemStatus once the class is
         // implemented.
-        const panel::types::RoleType defaultRole =
+        const types::RoleType defaultRole =
             getDefaultPanelRole(imResult.value());
 
         // TODO: Pass real devPath, devAddr and fruPath once available.
-        auto transport = std::make_shared<panel::Transport>();
+        auto transport = std::make_shared<Transport>();
+
+        // For redundant-BMC systems, enable the transport key only if the
+        // current BMC owns the panel control.
+        if (std::ranges::contains(constants::redundantBmcSystemImList,
+                                  imResult.value()))
+        {
+            checkAndEnableLcdPanel(transport);
+        }
+        else
+        {
+            // ToDo: Check the LCD Panel presence and enable the trasport key
+            // based on the device presence.
+        }
 
         // TODO: Update PanelStateManager to accept an Executor once available.
         auto stateManager =
-            std::make_shared<panel::StateManager>(transport, defaultRole);
+            std::make_shared<StateManager>(transport, defaultRole);
     }
     catch (const std::exception& ex)
     {
         lg2::error("Failed to initialise Panel, reason: {ERROR}", "ERROR", ex);
 
-        panel::utils::createPEL(
-            "com.ibm.Panel.Error.InternalFailure",
-            "xyz.openbmc_project.Logging.Entry.Level.Warning",
-            {{"DESCRIPTION",
-              std::format("Failed to initialise Panel, reason: {}",
-                          ex.what())}});
+        utils::createPEL("com.ibm.Panel.Error.InternalFailure",
+                         "xyz.openbmc_project.Logging.Entry.Level.Warning",
+                         {{"DESCRIPTION",
+                           std::format("Failed to initialise Panel, reason: {}",
+                                       ex.what())}});
     }
 }
+} // namespace panel
 
 int main()
 {
@@ -112,7 +203,7 @@ int main()
             server.add_interface(panel::constants::panelObjectPath,
                                  panel::constants::panelInterface);
 
-        initPanel();
+        panel::initPanel();
 
         iface->initialize();
 
