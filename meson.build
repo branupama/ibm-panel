@@ -18,6 +18,11 @@ systemd = dependency('systemd')
 sdbusplus = dependency('sdbusplus')
 phosphor_dbus_interfaces = dependency('phosphor-dbus-interfaces')
 phosphor_logging = dependency('phosphor-logging')
+libgpiodcxx = dependency(
+    'libgpiodcxx',
+    default_options: ['bindings=cxx'],
+    version: '<1.7.0',
+)
 
 cxx = meson.get_compiler('cpp')
 add_project_arguments(
@@ -61,10 +66,17 @@ common_SOURCES = ['src/transport.cpp', 'src/state_manager.cpp']
 
 panel_SOURCE = ['src/main.cpp'] + common_SOURCES
 
+dependency_list = [
+    sdbusplus,
+    phosphor_dbus_interfaces,
+    phosphor_logging,
+    libgpiodcxx,
+]
+
 executable(
     'ibm-panel',
     panel_SOURCE,
-    dependencies: [sdbusplus, phosphor_dbus_interfaces, phosphor_logging],
+    dependencies: dependency_list,
     include_directories: ['include'],
     install: true,
 )
