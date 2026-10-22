@@ -26,6 +26,7 @@ using systemStateType = uint16_t;
 using DbusVariantType = std::variant<
     std::vector<std::tuple<std::string, std::string, std::string>>,
     types::Binary,
+    std::string,
     size_t>;
 
 // Pel additional data contains map of key and value

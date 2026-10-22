@@ -72,13 +72,127 @@ void SystemStatus::initialize() noexcept
 
 void SystemStatus::createNameOwnerChangedListener(const std::string& service)
 {
-    // ToDo: Register a NameOwnerChanged signal match for this service and
-    // store the created match object in the class member. On callback, each
-    // property listed for this service in the config JSON will be read and
-    // the StateManager API will be invoked to update the system status, only
-    // if at least one property read succeeds.
+    nameOwnerChangedMatches.emplace_back(
+        *connection, sdbusplus::bus::match::rules::nameOwnerChanged(service),
+        [this, service](sdbusplus::message_t& msg) {
+            nameOwnerChangedCallback(msg, service);
+        });
+
     lg2::info("registered NameOwnerChanged watcher for service {SVC}", "SVC",
               service);
+}
+
+void SystemStatus::nameOwnerChangedCallback(sdbusplus::message_t& msg,
+                                            const std::string& service) noexcept
+{
+    try
+    {
+        std::string name;
+        std::string oldOwner;
+        std::string newOwner;
+        msg.read(name, oldOwner, newOwner);
+
+        // An empty new owner means the service went down; nothing to read.
+        if (newOwner.empty())
+        {
+            return;
+        }
+
+        lg2::info("Service {SVC} started", "SVC", service);
+
+        for (const auto& objEntry :
+             sysConfigJson["listenOnProperties"][service])
+        {
+            for (const auto& [objectPath, intfList] : objEntry.items())
+            {
+                for (const auto& intfEntry : intfList)
+                {
+                    const std::string interface =
+                        intfEntry["interfaceName"].get<std::string>();
+
+                    for (const auto& property : intfEntry["properties"])
+                    {
+                        const auto propertyName = property.get<std::string>();
+                        const auto readRes = utils::readDbusProperty(
+                            service, objectPath, interface, propertyName);
+                        if (!readRes)
+                        {
+                            continue;
+                        }
+
+                        dispatchProperty(service, objectPath, interface,
+                                         propertyName, *readRes);
+                    }
+                }
+            }
+        }
+    }
+    catch (const std::exception& ex)
+    {
+        lg2::error("Failed to handle service start for {SVC}, reason: {ERROR}",
+                   "SVC", service, "ERROR", ex);
+    }
+}
+
+void SystemStatus::dispatchProperty(
+    const std::string& service, const std::string& objectPath,
+    const std::string& interface, const std::string& property,
+    [[maybe_unused]] const types::DbusVariantType& value) noexcept
+{
+    try
+    {
+        if (service == "xyz.openbmc_project.State.BMC" &&
+            objectPath == "/xyz/openbmc_project/state/bmc0" &&
+            interface == "xyz.openbmc_project.State.BMC" &&
+            property == "CurrentBMCState")
+        {
+            // ToDo: Convert the BMC state value and call the dedicated
+            // StateManager API.
+        }
+        else if (service == "xyz.openbmc_project.State.Chassis" &&
+                 objectPath == "/xyz/openbmc_project/state/chassis0" &&
+                 interface == "xyz.openbmc_project.State.Chassis" &&
+                 property == "CurrentPowerState")
+        {
+            // ToDo: Convert the chassis power state value and call the
+            // dedicated StateManager API.
+        }
+        else if (service == "xyz.openbmc_project.State.Host" &&
+                 objectPath == "/xyz/openbmc_project/state/host0" &&
+                 interface == "xyz.openbmc_project.State.Boot.Progress" &&
+                 property == "BootProgress")
+        {
+            // ToDo: Convert the boot progress value and call the dedicated
+            // StateManager API.
+        }
+        else if (service == "xyz.openbmc_project.BIOSConfigManager" &&
+                 objectPath == "/xyz/openbmc_project/bios_config/manager" &&
+                 interface == "xyz.openbmc_project.BIOSConfig.Manager" &&
+                 property == "BaseBIOSTable")
+        {
+            // ToDo: Extract the required BIOS attribute(s) and call the
+            // dedicated StateManager API.
+        }
+        else if (service == "xyz.openbmc_project.State.BMC.Redundancy" &&
+                 objectPath == "/xyz/openbmc_project/state/bmc0" &&
+                 interface == "xyz.openbmc_project.State.BMC.Redundancy" &&
+                 property == "Role")
+        {
+            // ToDo: Convert the BMC role value and call the dedicated
+            // StateManager API.
+        }
+        else
+        {
+            lg2::error("No handler for [{SVC}] [{PATH}] [{INTF}] [{PROP}]",
+                       "SVC", service, "PATH", objectPath, "INTF", interface,
+                       "PROP", property);
+        }
+    }
+    catch (const std::exception& ex)
+    {
+        lg2::error("Handler failed for {INTF} {PROP}, reason: {ERROR}", "INTF",
+                   interface, "PROP", property, "ERROR", ex);
+    }
 }
 
 bool SystemStatus::isServiceRunning(
