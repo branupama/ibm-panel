@@ -1,0 +1,88 @@
+project(
+    'ibm-panel',
+    'cpp',
+    default_options: [
+        'warning_level=3',
+        'werror=true',
+        'cpp_std=c++23',
+        # note: This is allowed in certain contexts, but provides binary size
+        # improvements for applications that don't require rtti
+        'cpp_rtti=false',
+    ],
+    license: 'Apache-2.0',
+    version: '0.1',
+    meson_version: '>= 1.1.1',
+)
+
+systemd = dependency('systemd')
+sdbusplus = dependency('sdbusplus')
+phosphor_dbus_interfaces = dependency('phosphor-dbus-interfaces')
+phosphor_logging = dependency('phosphor-logging')
+nlohmann_json = dependency('nlohmann_json')
+
+cxx = meson.get_compiler('cpp')
+add_project_arguments(
+    cxx.get_supported_arguments(
+        [
+            '-DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT',
+            '-DBOOST_ASIO_DISABLE_THREADS',
+            '-DBOOST_NO_RTTI',
+            '-DBOOST_NO_TYPEID',
+            '-DBOOST_ALLOW_DEPRECATED_HEADERS',
+        ],
+    ),
+    language: 'cpp',
+)
+add_global_arguments('-Wno-psabi', language: ['c', 'cpp'])
+
+systemd_system_unit_dir = systemd.get_variable('systemdsystemunitdir')
+
+service_file = 'service_files/com.ibm.panel.service'
+
+if get_option('system-vpd-dependency').enabled()
+    service_file = 'service_files/ibm.panel.system.vpd.dependent.service'
+endif
+
+# Wait for ibm-power-highend-platform-apps.service to publish the BMC
+# position on D-Bus before starting (redundant-BMC systems only).
+bmc_position_dependency = ''
+if get_option('redundant-bmc')
+    bmc_position_dependency = 'After=ibm-power-highend-platform-apps.service'
+endif
+
+# Install panel configuration files
+install_subdir(
+    'configuration/',
+    install_mode: 'rwxr-xr-x',
+    install_dir: '/usr/share/panel',
+    strip_directory: true,
+)
+
+configure_file(
+    input: service_file,
+    output: 'com.ibm.panel.service',
+    configuration: {'BMC_POSITION_DEPENDENCY': bmc_position_dependency},
+    install_dir: systemd_system_unit_dir,
+    install: true,
+)
+
+common_SOURCES = [
+    'src/transport.cpp',
+    'src/state_manager.cpp',
+    'src/system_status.cpp',
+]
+
+panel_SOURCE = ['src/main.cpp'] + common_SOURCES
+
+executable(
+    'ibm-panel',
+    panel_SOURCE,
+    dependencies: [
+        sdbusplus,
+        phosphor_dbus_interfaces,
+        phosphor_logging,
+        nlohmann_json,
+    ],
+    include_directories: ['include'],
+    install: true,
+)
